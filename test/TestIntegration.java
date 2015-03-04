@@ -33,6 +33,8 @@ import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.slf4j.Logger;
 import org.junit.After;
@@ -341,6 +343,48 @@ final public class TestIntegration {
     }
   }
 
+  /** Asynchronous scan */
+  @Test
+  public void asyncScan() throws Exception {
+    client.setFlushInterval(FAST_FLUSH);
+    final int nbrows = 100;
+    List<Deferred<Object>> puts = new ArrayList<Deferred<Object>>();
+    for (int i = 0; i < nbrows; i++) {
+      byte[] r = new byte[4];
+      Bytes.setInt(r,i);
+      puts.add(client.put(new PutRequest(table.getBytes(),r,family.getBytes(),"q".getBytes(),r)));
+    }
+    Deferred.group(puts).join();
+    final Scanner scanner = client.newScanner(table);
+    scanner.setQualifier("q");
+    final AtomicInteger counter = new AtomicInteger(0);
+    AsyncScanner.BatchProcessor processor = new AsyncScanner.BatchProcessor() {
+      @Override
+      public Deferred<Object> process(final ArrayList<ArrayList<KeyValue>> rows) {
+        final Deferred<Object> d = new Deferred<Object>();
+        new Thread( new Runnable() {
+          @Override
+          public void run() {
+            try {
+              System.out.println("Result processor : got " + rows.size() + " rows");
+              int total = counter.addAndGet(rows.size());
+              //System.out.println(rows.toString());
+              Thread.sleep(100);
+              System.out.println("Result processor : total " + total + " rows");
+              d.callback(null);
+            } catch(Exception ex) {
+              ex.printStackTrace();
+              throw new RuntimeException(ex);
+            }
+          }
+        }).start();
+        return d;
+      }
+    };
+    new AsyncScanner(scanner, processor, 4, 4).scanAndProcess().join();
+    assertEquals(nbrows,counter.get());
+  }
+
   /** Scan with multiple qualifiers. */
   @Test
   public void scanWithQualifiers() throws Exception {
@@ -349,7 +393,7 @@ final public class TestIntegration {
     final PutRequest put2 = new PutRequest(table, "k", family, "b", "val2");
     final PutRequest put3 = new PutRequest(table, "k", family, "c", "val3");
     Deferred.group(client.put(put1), client.put(put2),
-                   client.put(put3)).join();
+      client.put(put3)).join();
     final Scanner scanner = client.newScanner(table);
     scanner.setFamily(family);
     scanner.setQualifiers(new byte[][] { { 'a' }, { 'c' } });
@@ -375,7 +419,7 @@ final public class TestIntegration {
     final DeleteRequest del3 = new DeleteRequest(table, "mdk2", family, "q3");
     final DeleteRequest del1 = new DeleteRequest(table, "mdk1", family, "q1");
     Deferred.group(client.delete(del2), client.delete(del3),
-                   client.delete(del1)).join();
+      client.delete(del1)).join();
     GetRequest get = new GetRequest(table, "mdk1");
     ArrayList<KeyValue> kvs = client.get(get).join();
     assertSizeIs(0, kvs);
@@ -556,7 +600,7 @@ final public class TestIntegration {
       bufferIncrement(table, key, family, qual, big),
       bufferIncrement(table, key, family, qual, big)
     ).addCallbackDeferring(new Callback<Deferred<ArrayList<KeyValue>>,
-                                        ArrayList<Long>>() {
+      ArrayList<Long>>() {
       public Deferred<ArrayList<KeyValue>> call(final ArrayList<Long> incs) {
         final GetRequest get = new GetRequest(table, key)
           .family(family).qualifier(qual);
@@ -664,8 +708,8 @@ final public class TestIntegration {
                                          final byte[] qual, final long value) {
     return
       client.bufferAtomicIncrement(new AtomicIncrementRequest(table, key,
-                                                              family, qual,
-                                                              value));
+        family, qual,
+        value));
   }
 
   /** Helper method to create a get request.  */

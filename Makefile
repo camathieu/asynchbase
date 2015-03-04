@@ -60,6 +60,7 @@ BUILT_SOURCES := $(asynchbase_PROTOS:protobuf/%.proto=$(PROTOBUF_GEN_DIR)/%PB.ja
 
 asynchbase_SOURCES := \
 	src/AppendRequest.java	\
+	src/AsyncScanner.java	\
 	src/AtomicIncrementRequest.java	\
 	src/BatchableRpc.java	\
 	src/BinaryComparator.java	\
